@@ -22,7 +22,7 @@ SHIPBRIDGE_DRIVER=egyptpost
 EGYPTPOST_API_KEY=your-key-here
 EGYPTPOST_BASE_URL=https://api.egyptpost.org/v1
 ```
-> لو الشركة بتستخدم username/password أو OAuth، شوف ملف `config/egyptpost.php`.
+> التفاصيل الكاملة للمفاتيح في `config/egyptpost.php`.
 
 ### ٣) ابعت شحنة
 ```php
@@ -58,6 +58,7 @@ composer require mohamedhekal/shipbridge mohamedhekal/shipbridge-egyptpost
 ```env
 SHIPBRIDGE_DRIVER=egyptpost
 EGYPTPOST_API_KEY=your-key-here
+EGYPTPOST_BASE_URL=https://api.egyptpost.org/v1
 ```
 
 ```php
