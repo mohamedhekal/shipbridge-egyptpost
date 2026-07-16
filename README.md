@@ -7,6 +7,8 @@
 
 **Egypt Post** shipping driver for [ShipBridge](https://github.com/mohamedhekal/shipbridge) · Region: **Egypt** / **مصر**
 
+> **Honest limitation:** Egypt Post does not expose a public merchant create-shipment API. Merchants use the **Wassalha** app. This driver tracks via the official [TrackTrace](https://egyptpost.gov.eg/ar-eg/TrackTrace) endpoint and optionally routes create/label through a **partner B2B gateway** when you have one.
+
 ---
 
 ## بالعربي — في ٣ خطوات
@@ -16,17 +18,34 @@
 composer require mohamedhekal/shipbridge mohamedhekal/shipbridge-egyptpost
 ```
 
-### ٢) حط مفاتيح Egypt Post في `.env`
+### ٢) اختار الوضع
+
+**تتبع فقط** (الافتراضي بدون API key):
 ```env
 SHIPBRIDGE_DRIVER=egyptpost
-EGYPTPOST_API_KEY=your-key-here
-EGYPTPOST_BASE_URL=https://api.egyptpost.org/v1
+EGYPTPOST_MODE=track_only
 ```
-> التفاصيل الكاملة للمفاتيح في `config/egyptpost.php`.
 
-### ٣) ابعت شحنة
+**بوابة شريك B2B** (إنشاء + تتبع):
+```env
+SHIPBRIDGE_DRIVER=egyptpost
+EGYPTPOST_MODE=partner
+EGYPTPOST_API_KEY=your-partner-key
+EGYPTPOST_BASE_URL=https://your-gateway.example/v1
+```
+
+> الدليل العربي الكامل: [`docs/GUIDE_AR.md`](docs/GUIDE_AR.md)
+
+### ٣) تتبع شحنة
 ```php
 use Hekal\ShipBridge\Facades\ShipBridge;
+
+$tracking = ShipBridge::driver('egyptpost')->track('EP123456789');
+$label = ShipBridge::driver('egyptpost')->label('EP123456789'); // public track URL in track_only
+```
+
+إنشاء شحنة (partner فقط):
+```php
 use Hekal\ShipBridge\DTOs\Address;
 use Hekal\ShipBridge\DTOs\CreateShipmentRequest;
 use Hekal\ShipBridge\DTOs\Parcel;
@@ -37,14 +56,6 @@ $shipment = ShipBridge::driver('egyptpost')->createShipment(new CreateShipmentRe
     parcels: [new Parcel(weightKg: 1.2)],
     reference: 'ORD-42',
 ));
-
-echo $shipment->trackingNumber;
-```
-
-تتبع / ليبل / مرتجع:
-```php
-ShipBridge::driver('egyptpost')->track($shipment->trackingNumber);
-ShipBridge::driver('egyptpost')->label($shipment->id);
 ```
 
 ---
@@ -56,16 +67,22 @@ composer require mohamedhekal/shipbridge mohamedhekal/shipbridge-egyptpost
 ```
 
 ```env
-SHIPBRIDGE_DRIVER=egyptpost
-EGYPTPOST_API_KEY=your-key-here
-EGYPTPOST_BASE_URL=https://api.egyptpost.org/v1
+# Track only (no public create API)
+EGYPTPOST_MODE=track_only
+
+# Or partner gateway when you have a B2B contract
+EGYPTPOST_MODE=partner
+EGYPTPOST_API_KEY=your-key
+EGYPTPOST_BASE_URL=https://your-gateway.example/v1
 ```
 
 ```php
-ShipBridge::driver('egyptpost')->createShipment(...);
-ShipBridge::driver('egyptpost')->track('TRACKING');
-ShipBridge::driver('egyptpost')->label('SHIPMENT_ID');
+ShipBridge::driver('egyptpost')->track('BARCODE');
+ShipBridge::driver('egyptpost')->label('BARCODE');   // track URL or partner PDF
+ShipBridge::driver('egyptpost')->createShipment(...); // partner mode only
 ```
+
+See [`docs/API.md`](docs/API.md) for endpoints and payload shapes.
 
 ## How it fits
 
@@ -75,14 +92,14 @@ Your Laravel app
       ▼
  ShipBridge  (one API for all carriers)
       │
-      ▼
- shipbridge-egyptpost  ← this package (Egypt Post)
+      ├─► egyptpost.gov.eg TrackTrace  (track — always)
+      └─► partner REST gateway       (create — optional)
 ```
 
 ## Testing
 
 ```bash
-composer install && composer test
+composer install && composer test && composer analyse && composer format
 ```
 
 ## License

@@ -21,7 +21,10 @@ abstract class TestCase extends Orchestra
     protected function defineEnvironment($app): void
     {
         $app['config']->set('shipbridge.default', 'egyptpost');
+        $app['config']->set('shipbridge.drivers.egyptpost.mode', 'partner');
         $app['config']->set('shipbridge.drivers.egyptpost.base_url', 'https://egyptpost.test/v1');
-        $app['config']->set('shipbridge.drivers.egyptpost.token', 'test-token');
+        $app['config']->set('shipbridge.drivers.egyptpost.api_key', 'test-token');
+        $app['config']->set('shipbridge.drivers.egyptpost.track_url', 'https://track.test/GetShipmentDetails');
+        $app['config']->set('shipbridge.drivers.egyptpost.track_portal_url', 'https://track.test/portal?Barcode={barcode}');
     }
 }

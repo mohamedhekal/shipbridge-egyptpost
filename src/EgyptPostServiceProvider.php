@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Hekal\ShipBridge\EgyptPost;
 
+use Hekal\ShipBridge\EgyptPost\Support\PayloadFactory;
 use Hekal\ShipBridge\Facades\ShipBridge;
 use Hekal\ShipBridge\Support\StatusNormalizer;
 use Illuminate\Http\Client\Factory as HttpFactory;
@@ -29,9 +30,9 @@ final class EgyptPostServiceProvider extends ServiceProvider
             $driverMap = $config['status_map'] ?? [];
 
             return new EgyptPostDriver(
-                http: $app->make(HttpFactory::class),
+                client: new EgyptPostClient($app->make(HttpFactory::class), $config),
+                payloads: new PayloadFactory($config),
                 normalizer: new StatusNormalizer(array_merge($aliases, $driverMap)),
-                config: $config,
             );
         });
     }

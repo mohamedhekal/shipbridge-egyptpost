@@ -12,51 +12,38 @@ use Hekal\ShipBridge\DTOs\ReturnShipmentRequest;
 use Hekal\ShipBridge\DTOs\ShipmentResult;
 use Hekal\ShipBridge\DTOs\TrackingEvent;
 use Hekal\ShipBridge\DTOs\TrackingResult;
+use Hekal\ShipBridge\EgyptPost\Support\PayloadFactory;
 use Hekal\ShipBridge\Enums\LabelFormat;
 use Hekal\ShipBridge\Enums\ShipmentStatus;
-use Hekal\ShipBridge\Exceptions\ShipBridgeException;
 use Hekal\ShipBridge\Support\StatusNormalizer;
-use Illuminate\Http\Client\Factory as HttpFactory;
-use Illuminate\Http\Client\PendingRequest;
-use Illuminate\Http\Client\Response;
 
 /**
  * Egypt Post driver for ShipBridge (Egypt).
  *
- * Talks to a JSON shipping API. Point base_url/credentials at your Egypt Post
- * sandbox or production environment. Response fields expected:
- * id, tracking_number, status, label_url, events[].
+ * - track(): official egyptpost.gov.eg TrackTrace (always).
+ * - create/label/return/exchange: partner REST gateway when mode=partner.
+ * - track_only mode: create throws a helpful exception; label returns public track URL.
  */
 final class EgyptPostDriver implements CarrierDriver
 {
-    /**
-     * @param  array<string, mixed>  $config
-     */
     public function __construct(
-        private readonly HttpFactory $http,
+        private readonly EgyptPostClient $client,
+        private readonly PayloadFactory $payloads,
         private readonly StatusNormalizer $normalizer,
-        private readonly array $config,
     ) {}
 
     public function createShipment(CreateShipmentRequest $request): ShipmentResult
     {
-        $payload = array_merge($request->toArray(), [
-            'carrier' => 'egyptpost',
-        ]);
+        $this->client->ensurePartnerMode('create-shipment');
+        $payload = $this->payloads->create($request);
+        $data = $this->client->createShipment($payload);
 
-        $response = $this->client()->post('shipments', $payload);
-        $this->ensureOk($response);
-
-        return $this->shipmentFromPayload($response->json() ?? []);
+        return $this->shipmentFromPayload($data);
     }
 
     public function track(string $trackingNumber): TrackingResult
     {
-        $response = $this->client()->get("shipments/track/{$trackingNumber}");
-        $this->ensureOk($response);
-
-        /** @var array<string, mixed> $payload */
-        $payload = $response->json() ?? [];
+        $payload = $this->client->trackOfficial($trackingNumber);
         $status = $this->normalizer->normalize((string) ($payload['status'] ?? 'exception'));
 
         /** @var list<TrackingEvent> $events */
@@ -78,19 +65,23 @@ final class EgyptPostDriver implements CarrierDriver
             trackingNumber: (string) ($payload['tracking_number'] ?? $trackingNumber),
             status: $status,
             events: $events,
-            raw: $payload,
+            raw: is_array($payload['raw'] ?? null) ? $payload['raw'] : $payload,
         );
     }
 
     public function label(string $shipmentId, LabelFormat $format = LabelFormat::Pdf): LabelResult
     {
-        $response = $this->client()->get("shipments/{$shipmentId}/label", [
-            'format' => $format->value,
-        ]);
-        $this->ensureOk($response);
+        if ($this->client->mode() === 'track_only') {
+            return new LabelResult(
+                shipmentId: $shipmentId,
+                format: $format,
+                contents: '',
+                base64Encoded: false,
+                url: $this->client->publicTrackUrl($shipmentId),
+            );
+        }
 
-        /** @var array<string, mixed> $payload */
-        $payload = $response->json() ?? [];
+        $payload = $this->client->label($shipmentId, $format->value);
 
         return new LabelResult(
             shipmentId: $shipmentId,
@@ -103,60 +94,20 @@ final class EgyptPostDriver implements CarrierDriver
 
     public function createReturn(ReturnShipmentRequest $request): ShipmentResult
     {
-        $response = $this->client()->post(
-            "shipments/{$request->originalShipmentId}/returns",
-            $request->toArray(),
-        );
-        $this->ensureOk($response);
+        $this->client->ensurePartnerMode('return');
+        $payload = $this->payloads->returnShipment($request);
+        $data = $this->client->createReturn($request->originalShipmentId, $payload);
 
-        return $this->shipmentFromPayload($response->json() ?? []);
+        return $this->shipmentFromPayload($data);
     }
 
     public function createExchange(ExchangeShipmentRequest $request): ShipmentResult
     {
-        $response = $this->client()->post(
-            "shipments/{$request->originalShipmentId}/exchanges",
-            $request->toArray(),
-        );
-        $this->ensureOk($response);
+        $this->client->ensurePartnerMode('exchange');
+        $payload = $this->payloads->exchange($request);
+        $data = $this->client->createExchange($request->originalShipmentId, $payload);
 
-        return $this->shipmentFromPayload($response->json() ?? []);
-    }
-
-    private function client(): PendingRequest
-    {
-        $pending = $this->http
-            ->baseUrl(rtrim((string) ($this->config['base_url'] ?? ''), '/'))
-            ->timeout((int) ($this->config['timeout'] ?? 20))
-            ->acceptJson()
-            ->withHeaders([
-                'X-ShipBridge-Carrier' => 'egyptpost',
-            ]);
-
-        $token = $this->config['token'] ?? $this->config['api_key'] ?? $this->config['passkey'] ?? null;
-        if (is_string($token) && $token !== '') {
-            $pending = $pending->withToken($token);
-        }
-
-        $username = $this->config['username'] ?? null;
-        $password = $this->config['password'] ?? null;
-        if (is_string($username) && is_string($password) && $username !== '' && $password !== '') {
-            $pending = $pending->withBasicAuth($username, $password);
-        }
-
-        return $pending;
-    }
-
-    private function ensureOk(Response $response): void
-    {
-        if ($response->successful()) {
-            return;
-        }
-
-        throw ShipBridgeException::carrierFailed(
-            (string) ($response->json('message') ?? $response->body()),
-            $response->status(),
-        );
+        return $this->shipmentFromPayload($data);
     }
 
     /**
